@@ -2,7 +2,7 @@ class User:
     def __init__(self, id, name) -> None:
         """Create a new user based on the given name and id"""
         self.name = name
-        self.id = id
+        self.id = id # Id = Mail Adresse
 
     def store_data(self)-> None:
         """Save the user to the database"""
