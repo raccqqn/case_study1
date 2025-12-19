@@ -114,7 +114,7 @@ if st.session_state.selected_model:
     device = st.session_state.device_type
     model = st.session_state.selected_model
 
-    st.subheader(f"📅 Reservierung – {model}")
+    st.subheader(f"Reservierung – {model}")
 
     selected_date = st.date_input(
         "Datum auswählen",
