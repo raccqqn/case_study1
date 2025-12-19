@@ -1,0 +1,88 @@
+{
+    "devices": {
+        "1": {
+            "device_name": "Device1",
+            "managed_by_user_id": "one@mci.edu",
+            "is_active": true
+        },
+        "2": {
+            "device_name": "Device2",
+            "managed_by_user_id": "two@mci.edu",
+            "is_active": true
+        },
+        "3": {
+            "device_name": "Device3",
+            "managed_by_user_id": "four@mci.edu",
+            "is_active": true
+        },
+        "4": {
+            "device_name": "Device4",
+            "managed_by_user_id": "leonie@graf.edu",
+            "is_active": true
+        },
+        "5": {
+            "device_name": "Prusa Core One",
+            "managed_by_user_id": "max.mustermann@fh.at",
+            "is_active": true,
+            "device_type": "3D-Drucker"
+        },
+        "6": {
+            "device_name": "Sovol SV06",
+            "managed_by_user_id": "max.mustermann@fh.at",
+            "device_type": "3D-Drucker",
+            "is_active": true
+        },
+        "7": {
+            "device_name": "Glowforge Pro",
+            "managed_by_user_id": "max.mustermann@fh.at",
+            "device_type": "Laser-Cutter",
+            "is_active": true
+        },
+        "8": {
+            "device_name": "Cutter One",
+            "managed_by_user_id": "max.mustermann@fh.at",
+            "device_type": "Laser-Cutter",
+            "is_active": true
+        },
+        "9": {
+            "device_name": "Weller X2",
+            "managed_by_user_id": "max.mustermann@fh.at",
+            "device_type": "Loetstationen",
+            "is_active": true
+        },
+        "10": {
+            "device_name": "Weller WX2",
+            "managed_by_user_id": "max.mustermann@fh.at",
+            "device_type": "Loetstation",
+            "is_active": true
+        },
+        "11": {
+            "device_name": "Geeboon TC22",
+            "managed_by_user_id": "max.mustermann@fh.at",
+            "device_type": "Loetstationen",
+            "is_active": true
+        }
+    },
+    "devices_with_subclass": {
+        "1": {
+            "device_name": "Device1",
+            "managed_by_user_id": "one@mci.edu",
+            "is_active": true,
+            "reservation": {
+                "name": "res1",
+                "start_date": "{TinyDateTime}:2021-01-01T00:00:00",
+                "end_date": "{TinyDateTime}:2021-01-02T00:00:00"
+            }
+        }
+    },
+    "users": {
+        "1": {
+            "id": "vali.ver@mci.edu",
+            "name": "Valentin Versuch"
+        },
+        "2": {
+            "id": "leonie.graf@mci.edu",
+            "name": "Leonie Graf"
+        }
+    }
+}

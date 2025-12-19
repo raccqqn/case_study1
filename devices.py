@@ -8,11 +8,12 @@ class Device():
     db_connector = TinyDB(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database.json'), storage=serializer).table('devices')
 
     # Constructor
-    def __init__(self, device_name : str, managed_by_user_id : str):
+    def __init__(self, device_name : str, device_type : str, managed_by_user_id : str):
         self.device_name = device_name
         # The user id of the user that manages the device
         # We don't store the user object itself, but only the id (as a key)
         self.managed_by_user_id = managed_by_user_id
+        self.device_type = device_type
         self.is_active = True
         
     # String representation of the class
@@ -62,7 +63,14 @@ class Device():
 
         if result:
             data = result[:num_to_return]
-            device_results = [cls(d['device_name'], d['managed_by_user_id']) for d in data]
+            device_results = [
+                cls(
+                    d['device_name'],
+                    d.get('device_type', "Unknown"),
+                    d['managed_by_user_id']
+                )
+                for d in data
+            ]
             return device_results if num_to_return > 1 else device_results[0]
         else:
             return None
@@ -72,7 +80,13 @@ class Device():
         # Load all data from the database and create instances of the Device class
         devices = []
         for device_data in Device.db_connector.all():
-            devices.append(Device(device_data['device_name'], device_data['managed_by_user_id']))
+            devices.append(
+                Device(
+                    device_data['device_name'],
+                    device_data.get('device_type', "Unknown"),
+                    device_data['managed_by_user_id']
+                )
+            )
         return devices
 
 

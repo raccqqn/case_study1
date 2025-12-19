@@ -1,5 +1,7 @@
+from devices import Device
 import streamlit as st
 from datetime import date
+from users import User
 
 # ================= Sidebar =================
 st.sidebar.title("Navigation")
@@ -27,29 +29,43 @@ for k, v in defaults.items():
 ALL_HOURS = list(range(8, 19))      #Mögliche Stunden
 
 #Geräte, Modelle, werden später aus TinyDB gelesen
-if "device_models" not in st.session_state:
-    st.session_state.device_models = {
-        "3D-Drucker": {
-            "Prusa MK4": 2,
-            "Bambu X1": 1
-        },
-        "Laser-Cutter": {
-            "Glowforge": 2,
-            "Epilog Zing": 1
-        },
-        "Lötstationen": {
-            "Weller WX2": 2,
-            "JBC CD-2BQ": 1
-        }
-    }
 
-st.session_state.users = {
-    "max.mustermann@fh.at": {
-        "name": "Max Mustermann",
-        "email": "max.mustermann@fh.at",
-        "study": "Mechatronics"
+# if "device_models" not in st.session_state:
+#     st.session_state.device_models = {
+#         "3D-Drucker": {
+#             "Prusa MK4": 2,
+#             "Bambu X1": 1
+#         },
+#         "Laser-Cutter": {
+#             "Glowforge": 2,
+#             "Epilog Zing": 1
+#         },
+#         "Lötstationen": {
+#             "Weller WX2": 2,
+#             "JBC CD-2BQ": 1
+#         }
+#     }
+
+if "device_models" not in st.session_state:
+    st.session_state.device_models = {}
+
+    devices = Device.find_all()
+
+    for dev in devices:
+        dtype = dev.device_type or "Unbekannt"
+
+        # Typ-Gruppe anlegen falls nicht vorhanden
+        st.session_state.device_models.setdefault(dtype, {})
+
+        # Gerät eintragen
+        st.session_state.device_models[dtype][dev.device_name] = 1
+
+
+if "users" not in st.session_state:
+    st.session_state.users = {
+        u.id: {"name": u.name, "email": u.id}
+        for u in User.find_all()
     }
-}
 
 
 #Test-Reservierungen, werden später aus TinyDB gelesen
@@ -85,7 +101,7 @@ if page == "Geräteverwaltung":
 
     with col3:
         if st.button("Lötstationen", use_container_width=True):
-            st.session_state.device_type = "Lötstationen"
+            st.session_state.device_type = "Loetstationen"
             st.session_state.selected_model = None
 
     #Knopf um Geräte zu bearbeiten
@@ -97,6 +113,9 @@ if page == "Geräteverwaltung":
     #Modelle auslesen, auflisten
     if st.session_state.device_type:
         device = st.session_state.device_type
+        if device not in st.session_state.device_models:
+            st.info("Für diesen Gerätetyp gibt es aktuell keine Geräte in der Datenbank.")
+            st.stop()
         models = st.session_state.device_models[device]
 
         st.subheader(f"{device} – Modelle")
@@ -204,7 +223,7 @@ if st.session_state.open_reservation_dialog:
 #Fenster für Gerätebearbeitung
 if st.session_state.open_edit_dialog:
 
-    @st.dialog("🛠️ Geräte bearbeiten")
+    @st.dialog("Geräte bearbeiten")
     def edit_dialog():
 
         device = st.session_state.device_type
@@ -216,9 +235,27 @@ if st.session_state.open_edit_dialog:
         new_name = st.text_input("Modellname")
         new_count = st.number_input("Anzahl", 1, 20, 1)
 
+        # Verantwortlichen auswählen
+        user_emails = list(st.session_state.users.keys())
+
+        manager_email = st.selectbox(
+            "Verantwortlicher Benutzer",
+            options=user_emails,
+            format_func=lambda x: f"{st.session_state.users[x]['name']} ({x})"
+        )
+
         if st.button("Hinzufügen"):
             models[new_name] = new_count
-            st.success("Modell hinzugefügt")
+
+            # === In TinyDB speichern ===
+            device = Device(
+                device_name=new_name,
+                managed_by_user_id=manager_email,
+                device_type=st.session_state.device_type
+            )
+            device.store_data()
+
+            st.success("Gerät gespeichert")
             st.rerun()
 
         st.divider()
@@ -234,7 +271,12 @@ if st.session_state.open_edit_dialog:
                 )
             with c3:
                 if st.button("🗑️", key=f"del_{model}"):
+                    dev = Device.find_by_attribute("device_name", model)
+                    if dev:
+                        dev.delete()
+
                     del models[model]
+                    st.success("Gerät gelöscht")
                     st.rerun()
 
         st.divider()
@@ -280,7 +322,6 @@ elif page == "Nutzerverwaltung":
 
         name = st.text_input("Name")
         email = st.text_input("E-Mail")
-        study = st.text_input("Studiengang")
 
         col1, col2 = st.columns(2)
 
@@ -288,16 +329,21 @@ elif page == "Nutzerverwaltung":
 
         with col1:
             if st.button("Speichern"):
-                if not name or not email or not study:
+                if not name or not email:
                     st.warning("Bitte alle Felder ausfüllen")
                 elif email in st.session_state.users:
                     st.error("Diese E-Mail existiert bereits")
                 else:
+                    # UI speichern
                     st.session_state.users[email] = {
                         "name": name,
-                        "email": email,
-                        "study": study
+                        "email": email
                     }
+
+                    # DB speichern
+                    user = User(email, name)
+                    user.store_data()
+
                     st.success("Nutzer angelegt")
                     st.session_state.user_mode = None
                     st.rerun()
@@ -326,19 +372,24 @@ elif page == "Nutzerverwaltung":
         st.subheader("Nutzer bearbeiten")
 
         name = st.text_input("Name", value=user["name"])
-        study = st.text_input("Studiengang", value=user["study"])
 
         col1, col2, col3 = st.columns(3)
 
         with col1:
             if st.button("Änderungen speichern"):
+                # UI aktualisieren
                 users[user_email]["name"] = name
-                users[user_email]["study"] = study
+
+                # DB aktualisieren
+                u = User(user_email, name)
+                u.store_data()
+
                 st.success("Änderungen gespeichert")
                 st.rerun()
 
         with col2:
             if st.button("Nutzer löschen"):
+                User(user_email, user["name"]).delete()
                 del users[user_email]
                 st.session_state.user_mode = None
                 st.success("Nutzer gelöscht")
