@@ -8,12 +8,13 @@ class Device():
     db_connector = TinyDB(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database.json'), storage=serializer).table('devices')
 
     # Constructor
-    def __init__(self, device_name : str, device_type : str, managed_by_user_id : str):
+    def __init__(self, device_name : str, device_type : str, count: int, managed_by_user_id : str):
         self.device_name = device_name
         # The user id of the user that manages the device
         # We don't store the user object itself, but only the id (as a key)
         self.managed_by_user_id = managed_by_user_id
         self.device_type = device_type
+        self.count = count
         self.is_active = True
         
     # String representation of the class
@@ -67,6 +68,7 @@ class Device():
                 cls(
                     d['device_name'],
                     d.get('device_type', "Unknown"),
+                    d["count"],
                     d['managed_by_user_id']
                 )
                 for d in data
@@ -84,6 +86,7 @@ class Device():
                 Device(
                     device_data['device_name'],
                     device_data.get('device_type', "Unknown"),
+                    device_data["count"],
                     device_data['managed_by_user_id']
                 )
             )
@@ -92,17 +95,6 @@ class Device():
 
 
 if __name__ == "__main__":
-    # Create a device
-    device1 = Device("Device1", "one@mci.edu")
-    device2 = Device("Device2", "two@mci.edu") 
-    device3 = Device("Device3", "two@mci.edu") 
-    device4 = Device("Device4", "two@mci.edu") 
-    device1.store_data()
-    device2.store_data()
-    device3.store_data()
-    device4.store_data()
-    device5 = Device("Device3", "four@mci.edu") 
-    device5.store_data()
 
     #loaded_device = Device.find_by_attribute("device_name", "Device2")
     loaded_device = Device.find_by_attribute("managed_by_user_id", "two@mci.edu")

@@ -22,6 +22,16 @@ defaults = {
     "open_edit_dialog": False,
 }
 
+if "last_page" not in st.session_state:             #Letzte Page immer speichern
+    st.session_state.last_page = page
+
+if st.session_state.last_page != page:              #Bei Seitenwechsel werden alle Zustände zurückgesetzt
+    st.session_state.selected_model = None
+    st.session_state.reservation_date = None
+    st.session_state.open_reservation_dialog = False
+    st.session_state.open_edit_dialog = False
+    st.session_state.last_page = page
+
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -58,7 +68,7 @@ if "device_models" not in st.session_state:
         st.session_state.device_models.setdefault(dtype, {})
 
         # Gerät eintragen
-        st.session_state.device_models[dtype][dev.device_name] = 1
+        st.session_state.device_models[dtype][dev.device_name] = dev.count
 
 
 if "users" not in st.session_state:
@@ -118,13 +128,16 @@ if page == "Geräteverwaltung":
             st.stop()
         models = st.session_state.device_models[device]
 
-        st.subheader(f"{device} – Modelle")
+        st.subheader(f"{device} - Modelle")
 
         cols = st.columns(len(models), gap="small")
-        for col, model in zip(cols, models.keys()):
+
+        for col, (model, count) in zip(cols, models.items()):
+            label = f"{model} (x{count})"
+
             with col:
-                if st.button(model, use_container_width=True):
-                    st.session_state.selected_model = model
+                if st.button(label, use_container_width=True, key=f"btn_{model}"):
+                    st.session_state.selected_model = model   #Nur Modellnamen speichern
                     st.session_state.reservation_date = None
 
 #Kalender für Reservierung
@@ -219,6 +232,7 @@ if st.session_state.open_reservation_dialog:
                 st.rerun()
 
     reservation_dialog()
+    st.session_state.open_reservation_dialog = False
 
 #Fenster für Gerätebearbeitung
 if st.session_state.open_edit_dialog:
@@ -228,6 +242,8 @@ if st.session_state.open_edit_dialog:
 
         device = st.session_state.device_type
         models = st.session_state.device_models[device]
+        all_users = User.find_all()
+        user_mapping = {u.id: u.name for u in all_users}   #Verantwortliche auslesen
 
         st.subheader(f"{device} – Modelle verwalten")
 
@@ -247,10 +263,11 @@ if st.session_state.open_edit_dialog:
         if st.button("Hinzufügen"):
             models[new_name] = new_count
 
-            # === In TinyDB speichern ===
+            #In TinyDB speichern
             device = Device(
                 device_name=new_name,
                 managed_by_user_id=manager_email,
+                count=new_count,
                 device_type=st.session_state.device_type
             )
             device.store_data()
@@ -262,19 +279,52 @@ if st.session_state.open_edit_dialog:
         st.markdown("### Bestehende Modelle")
 
         for model in list(models.keys()):
-            c1, c2, c3 = st.columns([3, 1, 1])
+            c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
+
             with c1:
                 st.write(model)
+
+            #Verantwortlichen aus DB laden
+            dev = Device.find_by_attribute("device_name", model)
+            current_manager = dev.managed_by_user_id if dev else None
+
             with c2:
-                models[model] = st.number_input(
+                # Drop-Down mit allen Usern
+                new_manager = st.selectbox(
+                    "Verantwortlicher",
+                    options=list(user_mapping.keys()),
+                    format_func=lambda x: f"{user_mapping[x]} ({x})",
+                    index=list(user_mapping.keys()).index(current_manager)
+                        if current_manager in user_mapping else 0,
+                    key=f"mgr_{model}"
+                )
+
+                # Wenn geändert → DB speichern
+                if dev and new_manager != current_manager:
+                    dev.set_managed_by_user_id(new_manager)
+                    dev.store_data()
+                    st.success("Verantwortlicher aktualisiert")
+                    st.rerun()
+
+            with c3:
+                new_val = st.number_input(
                     "Anzahl", 1, 20, models[model], key=f"cnt_{model}"
                 )
-            with c3:
-                if st.button("🗑️", key=f"del_{model}"):
+                if new_val != models[model]:                                #Wenn neuer count-Wert angegeben wird - speichern
+                    models[model] = new_val
+
                     dev = Device.find_by_attribute("device_name", model)
                     if dev:
-                        dev.delete()
+                        dev.count = new_val
+                        dev.store_data()
 
+                    st.success("Anzahl aktualisiert")
+                    st.rerun()
+
+            with c4:
+                if st.button("🗑️", key=f"del_{model}"):
+                    if dev:
+                        dev.delete()
                     del models[model]
                     st.success("Gerät gelöscht")
                     st.rerun()
@@ -285,6 +335,7 @@ if st.session_state.open_edit_dialog:
             st.rerun()
 
     edit_dialog()
+    st.session_state.open_edit_dialog = False           #Dialog nur einmal aktiv lassen, so kann bleibt Dialog nicht geöffnet
 
 #Seite der Nutzerverwaltung
 elif page == "Nutzerverwaltung":
