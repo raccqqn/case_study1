@@ -1,7 +1,7 @@
-from devices import Device
+from devices_inheritance import Device
 import streamlit as st
 from datetime import date
-from users import User
+from users_inheritance import User
 
 # ================= Sidebar =================
 st.sidebar.title("Navigation")
@@ -37,24 +37,6 @@ for k, v in defaults.items():
         st.session_state[k] = v
 
 ALL_HOURS = list(range(8, 19))      #Mögliche Stunden
-
-#Geräte, Modelle, werden später aus TinyDB gelesen
-
-# if "device_models" not in st.session_state:
-#     st.session_state.device_models = {
-#         "3D-Drucker": {
-#             "Prusa MK4": 2,
-#             "Bambu X1": 1
-#         },
-#         "Laser-Cutter": {
-#             "Glowforge": 2,
-#             "Epilog Zing": 1
-#         },
-#         "Lötstationen": {
-#             "Weller WX2": 2,
-#             "JBC CD-2BQ": 1
-#         }
-#     }
 
 if "device_models" not in st.session_state:
     st.session_state.device_models = {}
