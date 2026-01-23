@@ -2,13 +2,16 @@ from devices_inheritance import Device
 import streamlit as st
 from datetime import date
 from users_inheritance import User
+from reservation_service import ReservationService
+from datetime import datetime, timedelta
+
 
 # ================= Sidebar =================
 st.sidebar.title("Navigation")
 
 page = st.sidebar.radio(
     "Menü",
-    ["Geräteverwaltung", "Nutzerverwaltung", "Reservierungen"]
+    ["Geräteverwaltung", "Nutzerverwaltung", "Reservierungen", "Wartungen"]
 )
 
 st.title(page)
@@ -40,17 +43,13 @@ ALL_HOURS = list(range(8, 19))      #Mögliche Stunden
 
 if "device_models" not in st.session_state:
     st.session_state.device_models = {}
-
     devices = Device.find_all()
 
     for dev in devices:
         dtype = dev.device_type or "Unbekannt"
-
-        # Typ-Gruppe anlegen falls nicht vorhanden
         st.session_state.device_models.setdefault(dtype, {})
-
-        # Gerät eintragen
-        st.session_state.device_models[dtype][dev.device_name] = dev.count
+        # Speichere das ganze Objekt dev statt nur dev.count
+        st.session_state.device_models[dtype][dev.device_name] = dev
 
 
 if "users" not in st.session_state:
@@ -60,21 +59,9 @@ if "users" not in st.session_state:
     }
 
 
-#Test-Reservierungen, werden später aus TinyDB gelesen
-if "reservations" not in st.session_state:
-    st.session_state.reservations = {
-    "Laser-Cutter": {
-        "Glowforge": {
-            "2025-12-20": [9, 10, 11, 12],
-            "2025-12-22": [14, 15]
-        }
-    },
-    "3D-Drucker": {
-        "Prusa MK4": {
-            "2025-12-21": [8, 9]
-        }
-    }
-}
+if "reservation_service" not in st.session_state:
+    st.session_state.reservation_service = ReservationService()
+
 
 #Verwaltung Geräte, Auswahl
 if page == "Geräteverwaltung":
@@ -114,12 +101,14 @@ if page == "Geräteverwaltung":
 
         cols = st.columns(len(models), gap="small")
 
-        for col, (model, count) in zip(cols, models.items()):
-            label = f"{model} (x{count})"
+        for col, (model_name, dev_obj) in zip(cols, models.items()):
+            label = f"{model_name} (x{dev_obj.count})"
 
             with col:
-                if st.button(label, use_container_width=True, key=f"btn_{model}"):
-                    st.session_state.selected_model = model   #Nur Modellnamen speichern
+                if st.button(label, use_container_width=True, key=f"btn_{model_name}"):
+                    # Speichere die ID für die Logik und den Namen für die Anzeige
+                    st.session_state.selected_model = dev_obj.id  
+                    st.session_state.selected_model_name = model_name
                     st.session_state.reservation_date = None
 
 #Kalender für Reservierung
@@ -128,7 +117,7 @@ if st.session_state.selected_model:
     device = st.session_state.device_type
     model = st.session_state.selected_model
 
-    st.subheader(f"Reservierung – {model}")
+    st.subheader(f"Reservierung – {st.session_state.selected_model_name}")
 
     selected_date = st.date_input(
         "Datum auswählen",
@@ -137,12 +126,19 @@ if st.session_state.selected_model:
 
     date_str = selected_date.isoformat()
 
-    reserved = (
-        st.session_state.reservations
-        .get(device, {})
-        .get(model, {})
-        .get(date_str, [])
-    )
+    service = st.session_state.reservation_service
+
+    # Alle Reservierungen für dieses Gerät
+    device_res = service.find_all_reservations_by_device_id(model)
+
+    reserved = []
+    for r in device_res:
+        if r.start_date.date().isoformat() == date_str:
+            # Stunden blockieren
+            start_h = r.start_date.hour
+            end_h = r.end_date.hour
+            reserved.extend(list(range(start_h, end_h)))
+
 
     free = [h for h in ALL_HOURS if h not in reserved]
 
@@ -159,54 +155,79 @@ if st.session_state.selected_model:
             st.session_state.open_reservation_dialog = True
 
 #Formular für Reservierung öffnen
+
 if st.session_state.open_reservation_dialog:
 
     @st.dialog("Neue Reservierung")
     def reservation_dialog():
-
-        device = st.session_state.device_type
-        model = st.session_state.selected_model
+        service = st.session_state.reservation_service
+        
+        # WICHTIG: Hier brauchen wir die ID für die Datenbank-Abfragen
+        model_id = st.session_state.selected_model 
+        # Und den Namen nur für die Anzeige im Text
+        model_name = st.session_state.selected_model_name
+        
         date_str = st.session_state.reservation_date
 
-        reserved = (
-            st.session_state.reservations
-            .get(device, {})
-            .get(model, {})
-            .get(date_str, [])
-        )
+        # Hier muss die model_id (UUID) rein!
+        device_res = service.find_all_reservations_by_device_id(model_id)
+
+        reserved = []
+        for r in device_res:
+            # (Dein bestehender Code zur Zeitberechnung...)
+            start_dt = r.start_date
+            end_dt = r.end_date
+            if isinstance(start_dt, str): start_dt = datetime.fromisoformat(start_dt)
+            if isinstance(end_dt, str): end_dt = datetime.fromisoformat(end_dt)
+
+            if start_dt.date().isoformat() == date_str:
+                reserved.extend(list(range(start_dt.hour, end_dt.hour)))
 
         free = [h for h in ALL_HOURS if h not in reserved]
 
+        st.write(f"Modell: **{model_name}**") # Anzeige des Namens
         start = st.selectbox("Startzeit", free)
         max_duration = len([h for h in free if h >= start])
         duration = st.slider("Dauer (Stunden)", 1, max_duration)
 
-        block = list(range(start, start + duration))
-        if not set(block).issubset(set(free)):
-            st.error("❌ Zeitraum nicht verfügbar")
-            return
-
-        name = st.text_input("Name")        #Hier wird später ein Benutzer ausgewählt
-        email = st.text_input("E-Mail")     #Für Reparatur - Benutzer "Service" wählen
+        # ... (Nutzer-Auswahl Code) ...
+        users = st.session_state.users
+        user_labels = [f'{u["name"]} ({u["email"]})' for u in users.values()]
+        label_to_id = {f'{u["name"]} ({u["email"]})': uid for uid, u in users.items()}
+        selected_label = st.selectbox("Benutzer auswählen", user_labels)
+        selected_user_id = label_to_id[selected_label]
         purpose = st.text_area("Zweck")
+        
+        if selected_user_id != "service@mci.edu":
+            costs = 0
+        else:
+            costs = st.number_input("Kosten Service", value=None, placeholder="Gib eine Nummer ein")
 
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("Reservieren"):
-                if not all([name, email, purpose]):
-                    st.warning("Bitte alle Felder ausfüllen")
+                if not purpose:
+                    st.warning("Bitte Zweck angeben")
                     return
 
-                st.session_state.reservations \
-                    .setdefault(device, {}) \
-                    .setdefault(model, {}) \
-                    .setdefault(date_str, []) \
-                    .extend(block)
+                start_dt = datetime.fromisoformat(date_str) + timedelta(hours=start)
+                end_dt = start_dt + timedelta(hours=duration)
 
-                st.session_state.open_reservation_dialog = False
-                st.success("Reservierung gespeichert")
-                st.rerun()
+                try:
+                    # WICHTIG: Hier muss device_id=model_id (die UUID) übergeben werden!
+                    service.create_reservation(                
+                        user_id=selected_user_id,
+                        device_id=model_id, 
+                        start_date=start_dt,
+                        end_date=end_dt,
+                        purpose=purpose,
+                        costs=costs
+                    )
+                    st.success("Reservierung gespeichert")
+                    st.session_state.open_reservation_dialog = False
+                    st.rerun()
+                except ValueError as e:
+                    st.error(f"Fehler: {str(e)}")
 
         with col2:
             if st.button("❌ Abbrechen"):
@@ -358,7 +379,6 @@ elif page == "Nutzerverwaltung":
 
         col1, col2 = st.columns(2)
 
-        #Daten werden später aus TinyDB ausgelesen, gespeichert
 
         with col1:
             if st.button("Speichern"):
@@ -435,4 +455,103 @@ elif page == "Nutzerverwaltung":
 
 
 elif page == "Reservierungen":
-    st.write("Reservierungsübersicht")
+    st.header("📋 Aktuelle Reservierungen")
+    
+    service = st.session_state.reservation_service
+    reservations = service.find_all_reservations()
+
+    if not reservations:
+        st.info("Es liegen aktuell keine Reservierungen vor.")
+    else:
+        # Tabellen-Header definieren
+        # Spaltenbreiten: Name(2), Email(2), Zeitraum(3), Zweck(2), Aktion(1)
+        h1, h2, h3, h4, h5 = st.columns([2, 2, 3, 2, 1])
+        h1.write("**Gerät**")
+        h2.write("**Benutzer**")
+        h3.write("**Zeitraum**")
+        h4.write("**Zweck**")
+        h5.write("**Aktion**")
+        st.divider()
+
+        for r in reservations:
+            # Gerätenamen anhand der ID finden
+            device = Device.find_by_attribute("id", r.device_id)
+            device_name = device.device_name if device else "Unbekanntes Gerät"
+            
+            # Zeitraum formatieren (z.B. 12.05. 14:00 - 16:00)
+            zeitraum = f"{r.start_date.strftime('%d.%m. %H:%M')} - {r.end_date.strftime('%H:%M')}"
+            
+            # Zeile in Spalten aufteilen
+            c1, c2, c3, c4, c5 = st.columns([2, 2, 3, 2, 1])
+            
+            with c1:
+                st.write(device_name)
+            with c2:
+                st.write(r.user_id)
+            with c3:
+                st.write(zeitraum)
+            with c4:
+                # Zweck anzeigen (Feld haben wir im letzten Schritt hinzugefügt)
+                st.write(getattr(r, 'purpose', '-')) 
+            with c5:
+                # Löschen-Knopf
+                if st.button("🗑️", key=f"del_res_{r.id}"):
+                    r.delete() # Löscht aus TinyDB
+                    st.success("Reservierung gelöscht!")
+                    st.rerun() # Seite neu laden, um Liste zu aktualisieren
+            
+            st.divider()
+
+elif page == "Wartungen":
+
+    
+    service = st.session_state.reservation_service
+    reservations = service.find_all_reservations_by_user_id("service@mci.edu")
+
+    if not reservations:
+        st.info("Es liegen aktuell keine Wartungen vor.")
+    else:
+        # Tabellen-Header definieren
+        h1, h2, h3, h4, h5, h6 = st.columns([2, 2, 3, 2, 2, 1])
+        h1.write("**Gerät**")
+        h2.write("**Benutzer**")
+        h3.write("**Zeitraum**")
+        h4.write("**Wartung**")
+        h5.write("**Kosten**")
+        h6.write("**Aktion**")
+        st.divider()
+
+        for r in reservations:
+            # Gerätenamen anhand der ID finden
+            device = Device.find_by_attribute("id", r.device_id)
+            device_name = device.device_name if device else "Unbekanntes Gerät"
+            
+            # Zeitraum formatieren (z.B. 12.05. 14:00 - 16:00)
+            zeitraum = f"{r.start_date.strftime('%d.%m. %H:%M')} - {r.end_date.strftime('%H:%M')}"
+
+            costs = f"{r.costs} €"
+
+            # Zeile in Spalten aufteilen
+            c1, c2, c3, c4, c5, c6 = st.columns([2, 2, 3, 2, 2, 1])
+            
+            with c1:
+                st.write(device_name)
+            with c2:
+                st.write(r.user_id)
+            with c3:
+                st.write(zeitraum)
+            with c4:
+                # Zweck anzeigen (Feld haben wir im letzten Schritt hinzugefügt)
+                st.write(getattr(r, 'purpose', '-')) 
+            with c5:
+                st.write(costs)
+            with c6:
+                # Löschen-Knopf
+                if st.button("🗑️", key=f"del_res_{r.id}"):
+                    r.delete() # Löscht aus TinyDB
+                    st.success("Wartung gelöscht!")
+                    st.rerun() # Seite neu laden, um Liste zu aktualisieren
+            
+            st.divider()
+
+        
